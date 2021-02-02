@@ -1,0 +1,152 @@
+%% Global Parameters
+
+%Time parameters
+t0 = 0;
+tmax = 1;
+dt = 0.00002;
+tvec = t0:dt:tmax;
+
+%Network parameters
+input = 0;      %Input on or off
+N_G = 1000;   %1000
+N_I = 100;    %100
+tau = 10*(10^(-3));
+
+%% Generator Network - SYNAPTIC STRENGTH
+
+pGG = 0.1;  %Sparsity; probability of connection
+gGG = 1.5;   %Chaotic value
+%!!!!!!!!!!!!!!! Rows are what each neuron receives and columns are to
+%which neurons each onse sends!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! SO IT IS THE
+%OTHER WAY AROUND
+J_GG = double(rand(N_G)<pGG);
+for i=1:size(J_GG,1)
+    for j=1:size(J_GG,2)
+        if J_GG(i,j)==1
+            J_GG(i,j) = normrnd(0,sqrt(1/(pGG*N_G))); %Synaptic strength in the generator network (find more elegant way)
+
+        end
+    end
+end
+
+%imagesc(J_GG);
+
+%% Feedback from readout unit
+
+%Fb from uniform distribution (-1,1)
+m = -1; n = 1;
+J_Gz = m + (n-m).*rand(1,N_G);
+gGz = 1;
+
+%% Input - SYNAPTIC STRENGTH
+
+J_GI = zeros(N_I,N_G);              %Synaptic strength from input
+input_to_neuron = randi([1,N_G],[1,N_I]);   %Each input can make only one connection; but multiple inputs can reach same neuron
+%Setting the strengths from input
+for i = 1:N_I
+    neuron_receiving = input_to_neuron(i);
+    J_GI(i,neuron_receiving) = normrnd(0,1);
+end
+
+%external_input = zeros(N_I, N_ with time!!!!!!!!!!
+
+%Input from uniform distribution (-2,2)
+a = -2; b=2; 
+I = a + (b-a).*rand(1,N_I); %CONSTANT INPUT THAT DOESN'T VARY WITH TIME
+
+%% Initial weights and driving the network
+
+%Random initial weights
+w_previous = normrnd(0, sqrt(1/N_G), [N_G,1]);
+w_current = zeros(N_G,1);
+update_time_step = 2;
+counter = 1;
+%w_history = zeros(N_G, length(0:update_time_step*dt:tmax));
+%w_history(:,1) = normrnd(0, sqrt(1/N_G), [N_G,1]);
+w_history = [w_previous, w_current];
+
+%Initialise P
+alpha = 1;
+P_previous = eye(N_G)/alpha;
+P_current = zeros(N_G);
+
+%Initialise driving network values
+s = zeros(N_G,length(tvec)); s(:,1) = 0.05;
+r = zeros(N_G,length(tvec)); %r(:,1) = 0.05;
+
+%Initialise output vector
+z = zeros(size(tvec));
+
+%% Target function
+
+% Sine wave function - T between 60ms and 8s
+gamma = 0.0001;   %gamma higher than 0.15 produces instability
+
+%Sine
+period = 10*tau;
+freq = 1/period;
+f = sin(2*pi*freq*tvec);
+
+%Triangle
+%period = 1/10;
+%freq = 1/period;
+%f = sawtooth(2*pi*freq*tvec,1/2);
+
+%% Main loop - ODE
+
+%ODEs simulation
+for t = 2:length(tvec)
+    %ODEs for synaptic input and firing rate
+    for i = 1:N_G
+        dsdt = (-s(i,t-1) + gGG*sum(J_GG(i,:).*r(:,t-1)') + gGz*J_Gz(i)*(gamma*f(t-1)+(1-gamma)*z(t-1)) + input*sum(J_GI(:,i).*I'))/tau;
+        s(i,t) = s(i,t-1) + dsdt*dt;
+        %drdt = -r(i,t-1) + tanh(s(i,t));
+        %r(i,t) = r(i,t-1) + drdt*dt;
+        r(i,t) = tanh(s(i,t));
+    end 
+    
+    if abs(norm(w_history(:,end))-norm(w_history(:,end-1))) > 10^6*eps %TO DO: to plot without learning chaotic; add && t>x
+        if mod(t,update_time_step)==1
+            %Error prior to weight updating
+            err_before = w_previous'*r(:,t) - f(t);
+            %Covariance matrix
+            P_current = P_previous - (P_previous*r(:,t)*r(:,t)'*P_previous)/(1+r(:,t)'*P_previous*r(:,t));
+            %Weight updating
+            w_current = w_previous-err_before*P_current*r(:,t);
+            %Output update
+            z(t) = w_current'*r(:,t);
+            %Error after update
+            err_after = z(t) - f(t);
+            P_previous = P_current;
+            w_previous = w_current;
+            w_history(:,(t-(update_time_step-1)*counter)) = w_current;
+            counter = counter+1;
+        else
+            %Weights at time t remain unchanged
+            w_current = w_previous;
+            %Cov matrix at time t remains unchanged
+            
+            P_current = P_previous;
+            %Output update despite no weight change
+            z(t) = w_current'*r(:,t);
+        end
+    else
+        %If learning has converged, weights don't change anymore
+        w_current=w_previous;
+        %Output update in the absence of learning
+        z(t) = w_current'*r(:,t);
+    end
+end
+
+plot(z);
+
+%tweak alpha 1-100
+%weight update time maybe too large
+%mak gamma smaller
+%integratio time vs w update time
+
+
+
+
+
+
